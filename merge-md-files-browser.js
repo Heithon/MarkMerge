@@ -368,24 +368,37 @@ function handleDrop(e) {
 
 function traverseFileTree(item, path = "") {
   const isRecursive = document.getElementById("recursiveOption").checked;
-
+  console.log("item", item);
   if (item.isFile) {
-    item.file((file) => {
-      if (file.name.toLowerCase().endsWith(".md")) {
-        file.fullPath = path + file.name;
-        files.push(file);
-        updateFileList();
+    item.file(
+      (file) => {
+        console.log("file", file);
+        if (file.name.toLowerCase().endsWith(".md")) {
+          file.fullPath = path + file.name;
+          files.push(file);
+          updateFileList();
+        }
+      },
+      (error) => {
+        console.error("读取文件失败:", error);
+        showPopup(`读取文件 ${item.name} 失败: ${error.message}`);
       }
-    });
+    );
   } else if (item.isDirectory) {
     if (isRecursive || path === "") {
       // 只有在递归选项开启或是顶级文件夹时才继续遍历
       let dirReader = item.createReader();
-      dirReader.readEntries((entries) => {
-        for (let i = 0; i < entries.length; i++) {
-          traverseFileTree(entries[i], path + item.name + "/");
+      dirReader.readEntries(
+        (entries) => {
+          for (let i = 0; i < entries.length; i++) {
+            traverseFileTree(entries[i], path + item.name + "/");
+          }
+        },
+        (error) => {
+          console.error("读取文件夹失败:", error);
+          showPopup(`读取文件夹 ${item.name} 失败: ${error.message}`);
         }
-      });
+      );
     }
   }
 }
