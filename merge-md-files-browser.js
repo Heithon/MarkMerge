@@ -4,19 +4,28 @@ let folderName = "";
 let abortController = null;
 
 function handleFiles(newFiles, isFolder) {
-  files = [];
+  const isRecursive = document.getElementById("recursiveOption").checked;
+  files = []; // 清空之前的文件列表
   folderName = "";
+
   Array.from(newFiles).forEach((file) => {
     if (file.name.toLowerCase().endsWith(".md")) {
-      files.push(file);
-      // 检查是否是文件夹上传
       if (isFolder && file.webkitRelativePath) {
-        folderName = file.webkitRelativePath.split("/")[0];
+        const pathParts = file.webkitRelativePath.split("/");
+        if (isRecursive || pathParts.length === 2) {
+          file.fullPath = file.webkitRelativePath;
+          folderName = pathParts[0];
+          files.push(file);
+        }
+      } else {
+        file.fullPath = file.name;
+        files.push(file);
       }
     }
   });
+
   files.sort((a, b) =>
-    a.name.localeCompare(b.name, undefined, {
+    a.fullPath.localeCompare(b.fullPath, undefined, {
       numeric: true,
       sensitivity: "base",
     })
@@ -28,7 +37,7 @@ function updateFileList() {
   const fileList = document.getElementById("fileList");
   if (files.length > 0) {
     fileList.innerHTML = files
-      .map((file) => `<div>${file.name}</div>`)
+      .map((file) => `<div>${file.fullPath || file.name}</div>`)
       .join("");
     fileList.style.display = "block"; // 显示文件列表
   } else {
@@ -251,92 +260,6 @@ function downloadFile(content, fileName) {
   }, 0);
 }
 
-// 设置拖放事件监听器
-const dropArea = document.getElementById("dropArea");
-
-["dragenter", "dragover", "dragleave", "drop"].forEach((eventName) => {
-  dropArea.addEventListener(eventName, preventDefaults, false);
-});
-
-function preventDefaults(e) {
-  e.preventDefault();
-  e.stopPropagation();
-}
-
-["dragenter", "dragover"].forEach((eventName) => {
-  dropArea.addEventListener(eventName, highlight, false);
-});
-
-["dragleave", "drop"].forEach((eventName) => {
-  dropArea.addEventListener(eventName, unhighlight, false);
-});
-
-function highlight() {
-  dropArea.classList.add("highlight");
-}
-
-function unhighlight() {
-  dropArea.classList.remove("highlight");
-}
-
-dropArea.addEventListener("drop", handleDrop, false);
-
-function handleDrop(e) {
-  e.preventDefault();
-  e.stopPropagation();
-
-  folderName = "";
-
-  if (e.dataTransfer.items) {
-    // 使用 DataTransferItemList 接口处理拖放的项目
-    for (let i = 0; i < e.dataTransfer.items.length; i++) {
-      if (e.dataTransfer.items[i].kind === "file") {
-        const entry = e.dataTransfer.items[i].webkitGetAsEntry();
-        if (entry.isDirectory) {
-          folderName = entry.name;
-          traverseDirectory(entry);
-        } else if (entry.isFile && entry.name.toLowerCase().endsWith(".md")) {
-          entry.file((file) => {
-            files.push(file);
-            updateFileList();
-          });
-        }
-      }
-    }
-  } else {
-    // 使用 DataTransfer 接口处理拖放的文件
-    handleFiles(e.dataTransfer.files, false);
-  }
-}
-
-function traverseDirectory(dirEntry) {
-  const reader = dirEntry.createReader();
-  reader.readEntries((entries) => {
-    entries.forEach((entry) => {
-      if (entry.isDirectory) {
-        traverseDirectory(entry);
-      } else if (entry.isFile && entry.name.toLowerCase().endsWith(".md")) {
-        entry.file((file) => {
-          files.push(file);
-          updateFileList();
-        });
-      }
-    });
-  });
-}
-
-// 修改文件输入事件监听器
-document.getElementById("fileInput").addEventListener("change", function (e) {
-  handleFiles(e.target.files, false);
-});
-
-document.getElementById("folderInput").addEventListener("change", function (e) {
-  handleFiles(e.target.files, true);
-});
-
-// 删除原来的文件输入事件监听器
-
-// 在文件末尾添加这个函数
 function toggleSidebar() {
   document.getElementById("sidebar").classList.toggle("closed");
 }
@@ -379,3 +302,109 @@ function showPopup(message) {
     document.body.removeChild(popup);
   }, 3000);
 }
+
+function setupDropArea() {
+  const dropArea = document.getElementById("dropArea");
+
+  ["dragenter", "dragover", "dragleave", "drop"].forEach((eventName) => {
+    dropArea.addEventListener(eventName, preventDefaults, false);
+  });
+
+  ["dragenter", "dragover"].forEach((eventName) => {
+    dropArea.addEventListener(eventName, highlight, false);
+  });
+
+  ["dragleave", "drop"].forEach((eventName) => {
+    dropArea.addEventListener(eventName, unhighlight, false);
+  });
+
+  dropArea.addEventListener("drop", handleDrop, false);
+}
+
+function preventDefaults(e) {
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+function highlight() {
+  dropArea.classList.add("highlight");
+}
+
+function unhighlight() {
+  dropArea.classList.remove("highlight");
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const items = e.dataTransfer.items;
+  files = []; // 清空之前的文件列表
+  folderName = "";
+
+  if (items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === "file") {
+        const entry = item.webkitGetAsEntry();
+        if (entry) {
+          traverseFileTree(entry);
+        } else {
+          const file = item.getAsFile();
+          if (file && file.name.toLowerCase().endsWith(".md")) {
+            files.push(file);
+          }
+        }
+      }
+    }
+  } else {
+    // 兼容不支持 DataTransferItemList 的浏览器
+    handleFiles(e.dataTransfer.files, false);
+  }
+
+  // 确保在所有文件处理完成后更新文件列表
+  setTimeout(updateFileList, 0);
+}
+
+function traverseFileTree(item, path = "") {
+  const isRecursive = document.getElementById("recursiveOption").checked;
+
+  if (item.isFile) {
+    item.file((file) => {
+      if (file.name.toLowerCase().endsWith(".md")) {
+        file.fullPath = path + file.name;
+        files.push(file);
+        updateFileList();
+      }
+    });
+  } else if (item.isDirectory) {
+    if (isRecursive || path === "") {
+      // 只有在递归选项开启或是顶级文件夹时才继续遍历
+      let dirReader = item.createReader();
+      dirReader.readEntries((entries) => {
+        for (let i = 0; i < entries.length; i++) {
+          traverseFileTree(entries[i], path + item.name + "/");
+        }
+      });
+    }
+  }
+}
+
+function setupFileInputs() {
+  document.getElementById("fileInput").addEventListener("change", function (e) {
+    handleFiles(e.target.files, false);
+    this.value = ""; // 重置文件输入元素的值
+  });
+
+  document
+    .getElementById("folderInput")
+    .addEventListener("change", function (e) {
+      handleFiles(e.target.files, true);
+      this.value = ""; // 重置文件输入元素的值
+    });
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  setupDropArea();
+  setupFileInputs();
+});
